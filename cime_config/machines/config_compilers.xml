@@ -1101,7 +1101,7 @@ flags should be captured within MPAS CMake files.
 </compiler>
 
 <compiler MACH="cori-knl" COMPILER="intel">
-  <ALBANY_PATH>/global/homes/m/mperego/e3sm-software/albany-trilinos/albany-install-2021-01-05</ALBANY_PATH>
+  <ALBANY_PATH>/global/homes/m/mperego/e3sm-software/albany-trilinos/albany-install-2021-10-01</ALBANY_PATH>
   <CONFIG_ARGS>
     <base> --host=cray </base>
   </CONFIG_ARGS>
