@@ -122,7 +122,11 @@ contains
       call mpas_pool_get_config(liConfigs, 'config_uplift_method', config_uplift_method)
       if (trim(config_uplift_method)=='sealevelmodel') then
          ! initialize the 1D sea-level model
+         call mpas_log_write("-----Initialing the SLM-----", &
+              intArgs=(/slmTimeStep/))
          call slmodel_init(domain, err)
+         call mpas_log_write("-----SLM initialization completed-----", &
+              intArgs=(/slmTimeStep/))
       endif
 
    !--------------------------------------------------------------------
@@ -257,9 +261,11 @@ contains
 
             slmTimeStep = slmTimeStep + 1
 
-            call mpas_log_write("Calling the SLM. SLM timestep $i", intArgs=(/slmTimeStep/))
+            call mpas_log_write("-----Calling the SLM. SLM timestep $i-----", &
+                 intArgs=(/slmTimeStep/))
             call slmodel_solve(slmTimeStep, domain)
-
+            call mpas_log_write("-----SLM completed timestep $i-----", &
+                 intArgs=(/slmTimeStep/))
             call mpas_reset_clock_alarm(domain % clock, 'slmCouplingInterval', ierr=err_tmp)
             err = ior(err, err_tmp)
          else
