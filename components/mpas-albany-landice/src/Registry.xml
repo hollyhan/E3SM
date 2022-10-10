@@ -795,6 +795,7 @@
 			<var name="bedTopography"/>
 			<var name="sfcMassBal"/>
                         <var name="floatingBasalMassBal"/>
+                        <var name="regionCellMasks"/>
                         <!-- If restart file sizes become too large, eigencalvingParameter,
                              groundedVonMisesThresholdStress, and floatingVonMisesThresholdStress
                              could be moved to packages. -->
@@ -1203,6 +1204,12 @@ is the value of that variable from the *previous* time level!
                 <var name="eigencalvingParameter" type="real" dimensions="nCells Time" units="m s" time_levs="1" default_value="0.0" missing_value="FILLVAL"
                      description="proportionality constant K2+- used in eigencalving formulation"
                 />
+                <var name="totalRatebasedCalvedVolume" type="real" dimensions="Time" units="m^3" time_levs="1"
+                        description="total calved volume calculated by li_apply_front_ablation_velocity for a rate-based calving law"
+                />
+                <var name="totalRatebasedUncalvedVolume" type="real" dimensions="Time" units="m^3" time_levs="1"
+                        description="total uncalved volume calculated by li_apply_front_ablation_velocity for a rate-based calving law"
+                />
                 <var name="groundedVonMisesThresholdStress" type="real" dimensions="nCells Time" units="Pa" time_levs="1" default_value="0.0" missing_value="FILLVAL"
                      description="Threshold stress for von Mises calving from grounded ice."
                 />
@@ -1487,6 +1494,10 @@ is the value of that variable from the *previous* time level!
                 />
                 <var name="dirichletMaskChanged"              type="integer"  dimensions="Time" default_value="0.0" missing_value="FILLVAL"
                      units="none"  description="flag needed by external velocity solvers that indicates if the Dirichlet boundary condition mask has changed (treated as a logical)"
+                        packages="higherOrderVelocity"
+                />
+                <var name="albanyVelocityError"              type="integer"  dimensions="Time"
+                        units="none"  description="0/1 flag indicating if Albany external velocity solver returned an error.  This typically means it did not converge.  0=converged. 1=unconverged"
                         packages="higherOrderVelocity"
                 />
         </var_struct>
