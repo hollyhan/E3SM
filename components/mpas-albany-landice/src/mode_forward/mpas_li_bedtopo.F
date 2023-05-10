@@ -69,6 +69,8 @@ module li_bedtopo
    integer, pointer :: nCellsAll
    integer, pointer ::  nCellsOwned
    integer :: iCell, ilm, curProc
+   real (kind=RKIND), dimension(:), allocatable :: globalArrayMeshMask
+   real (kind=RKIND), dimension(:), allocatable :: gatheredArrayMeshMask
    real (kind=RKIND), dimension(:), allocatable :: globalArrayThickness
    real (kind=RKIND), dimension(:), allocatable :: gatheredArrayThickness
    real (kind=RKIND), dimension(:), allocatable :: globalArrayBedTopography
@@ -409,6 +411,10 @@ contains
       err = 0
       err_tmp = 0
 
+      ! Allocate globalArray and gatheredArray only on process 0
+      call MPI_COMM_RANK(domain % dminfo % comm, curProc, err_tmp)
+      err = ior(err, err_tmp)
+
       ! initialize interpolation
       call interpolate_init(domain, err_tmp)
       err = ior(err, err_tmp)
@@ -529,6 +535,7 @@ contains
          call sl_deallocate_array
 
       endif
+
       deallocate(globalArrayThickness)
       deallocate(gatheredArrayThickness)
       deallocate(globalArrayBedTopography)
@@ -598,6 +605,7 @@ contains
       real (kind=RKIND), dimension(:), pointer :: bedTopography, thickness
       real (kind=RKIND), dimension(:), pointer :: bedTopographyChange
       real (kind=RKIND), dimension(:), allocatable :: meshMask
+      real (kind=RKIND), dimension(:), pointer :: meshMask_before, meshMask_after
       real (kind=RKIND), dimension(nglv,2*nglv) :: ismIceload, ismMask
       real (kind=RKIND), dimension(nglv,2*nglv) :: slmSLchange
       real (kind=RKIND), dimension(nglv*2*nglv) :: slChangeSLgrid1D
@@ -620,12 +628,11 @@ contains
       call mpas_pool_get_array(geometryPool, 'cellMask', cellMask)
       call mpas_pool_get_subpool(domain % blocklist % structs, 'mesh', meshPool)
       call mpas_pool_get_subpool(domain % blocklist % structs, 'velocity', velocityPool)
-
-      ! Allocate globalArray and gatheredArray only on process 0
-      call MPI_COMM_RANK(domain % dminfo % comm, curProc, err_tmp)
-      err = ior(err, err_tmp)
+      call mpas_pool_get_array(geometryPool, 'meshMask_before', meshMask_before)
+      call mpas_pool_get_array(geometryPool, 'meshMask_after', meshMask_after)
 
       if (curProc.eq.0) then
+         allocate(globalArrayMeshMask(nCellsGlobal), gatheredArrayMeshMask(nCellsGlobal))
          allocate(globalArrayThickness(nCellsGlobal), gatheredArrayThickness(nCellsGlobal))
          allocate(globalArrayTopoChange(nCellsGlobal), gatheredArrayTopoChange(nCellsGlobal))
          allocate(meshMask(nCellsGlobal))
@@ -637,6 +644,7 @@ contains
          maskSLgrid1D(:) = 0.0
       else
          ! Intel requires these be allocated even though they are not meaningful on the non-destination procs
+         allocate(globalArrayMeshMask(1), gatheredArrayMeshMask(1))
          allocate(globalArrayThickness(1), gatheredArrayThickness(1))
          allocate(globalArrayTopoChange(1), gatheredArrayTopoChange(1))
          allocate(meshMask(1))
@@ -686,6 +694,13 @@ contains
             gatheredArrayTopoChange(iCell) = globalArrayTopoChange(indexToCellIDGathered(iCell))
          enddo
 
+         !HH: interpolate the mask back
+         call interpolate(fromColValues, fromRowValues, fromSValues, maskSLgrid1D, globalArrayMeshMask)
+
+         !HH: Rearrange back to index order
+         do iCell = 1,nCellsGlobal
+            gatheredArrayMeshMask(iCell) = globalArrayMeshMask(indexToCellIDGathered(iCell))
+         enddo
       endif
 
       ! scatter output sea-level changes to processors
@@ -696,6 +711,15 @@ contains
       ! update bedTopography
       bedTopography(:) = bedTopography(:) + bedTopographyChange(:)
 
+      ! HH: for writing out masmMesh before and after: scatter
+      call MPI_SCATTERV(meshMask, nCellsPerProc, nCellsDisplacement, MPI_DOUBLE, &
+                        meshMask_before, nCellsAll, MPI_DOUBLE, 0, domain % dminfo % comm, err_tmp)
+      err = ior(err, err_tmp)
+
+      call MPI_SCATTERV(gatheredArrayMeshMask, nCellsPerProc, nCellsDisplacement, MPI_DOUBLE, &
+                        meshMask_after, nCellsAll, MPI_DOUBLE, 0, domain % dminfo % comm, err_tmp)
+      err = ior(err, err_tmp)
+
       ! Perform Halo exchange update
       call mpas_dmpar_field_halo_exch(domain,'bedTopography')
       call li_update_geometry(geometryPool)
@@ -703,6 +727,8 @@ contains
       err = ior(err, err_tmp)
 
       ! deallocate memory
+      deallocate(globalArrayMeshMask)
+      deallocate(gatheredArrayMeshMask)
       deallocate(globalArrayThickness)
       deallocate(gatheredArrayThickness)
       deallocate(globalArrayTopoChange)
