@@ -403,6 +403,9 @@ contains
       integer :: itersl, dtime ! SLM variable
       real    :: starttime     ! SLM variable
       integer, dimension(:), pointer :: cellMask  ! integer bitmask for cells
+      real :: k0, lat0
+      integer :: i
+      real (kind=RKIND), dimension(:), pointer :: latCell, lonCell, latCell_deg, kFactor
 
       ! MPI variables
       integer, dimension(:), pointer :: indexToCellID
@@ -424,6 +427,20 @@ contains
       call mpas_pool_get_dimension(meshPool, 'nCells', nCellsAll)
       call mpas_pool_get_dimension(meshPool, 'nCellsSolve', nCellsOwned)
       call mpas_pool_get_array(meshPool, 'indexToCellID', indexToCellID)
+      call mpas_pool_get_array(meshPool, 'latCell', latCell)
+      call mpas_pool_get_array(meshPool, 'lonCell', lonCell)
+
+      !convert latCell into degrees
+      latCell_deg(:) = latCell(:) * 180 / 3.14159265359
+      !calculate the area distortion (scale) factor for the polar stereographic projection
+      k0 = (1 - sin(-71 * 3.14159265359 / 180)) / 2
+      lat0 = -90 * 3.14159265359 / 180 ! center of the latitude
+      !lon0 = 0 ! center of the longitude
+      do i=1,nCellsAll
+         !expression for 'k' from p. 157 eqn. 21-4 in https://pubs.usgs.gov/pp/1395/report.pdf.
+         !p. 142 provides a table showing 'k' for the stereographic projection
+         kFactor(i) = 2 * k0 / ( 1 + (sin(lat0) * sin(latCell(i))) + (cos(lat0) * cos(latCell(i)) * cos(lonCell(i)-0.0)) )
+      enddo
 
       ! Allocate globalArray and gatheredArray only on process 0
       call MPI_COMM_RANK( domain % dminfo % comm, curProc, err_tmp)
