@@ -1142,6 +1142,18 @@ is the value of that variable from the *previous* time level!
 
 	<!--  Variables related to ice sheet geometry -->
         <var_struct name="geometry" time_levs="1">
+                <var name="kFactor" type="real" dimensions="nCells Time" units="none" time_levs="1"
+                     description="k-factor for correcting areal distortion of the planar MALI mesh"
+                />
+                <var name="kFactor2" type="real" dimensions="nCells Time" units="none" time_levs="1"
+                     description="k-factor for correcting areal distortion of the planar MALI mesh"
+                />
+                <var name="kFactor2Inv_remapped_from_slm" type="real" dimensions="nCells Time" units="none" time_levs="1"
+                     description="k-factor for correcting areal distortion of the planar MALI mesh"
+                />
+                <var name="maliMaskOnes_remapped_from_slm" type="real" dimensions="nCells Time" units="none" time_levs="1"
+                     description="mali mask of ones remapped from sea-level model"
+                />
                 <var name="meshMask_after" type="real" dimensions="nCells Time" units="none" time_levs="1"
                      description="mali mesh mask after re-interpolation back from the SLM grid"
                 />

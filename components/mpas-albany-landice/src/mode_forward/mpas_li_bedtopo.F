@@ -77,7 +77,12 @@ module li_bedtopo
    real (kind=RKIND), dimension(:), allocatable :: gatheredArrayBedTopography
    real (kind=RKIND), dimension(:), allocatable :: globalArrayTopoChange
    real (kind=RKIND), dimension(:), allocatable :: gatheredArrayTopoChange
-
+   real (kind=RKIND), dimension(:), allocatable :: globalArrayFactorK2_on_mali
+   real (kind=RKIND), dimension(:), allocatable :: gatheredArrayFactorK2_on_mali
+   real (kind=RKIND), dimension(:), allocatable :: globalArrayFactorK2Inv_on_mali
+   real (kind=RKIND), dimension(:), allocatable :: gatheredArrayFactorK2Inv_on_mali
+   real (kind=RKIND), dimension(:), allocatable :: globalArrayMeshMaskofOnes
+   real (kind=RKIND), dimension(:), allocatable :: gatheredArrayMeshMaskofOnes
 !***********************************************************************
 
 contains
@@ -405,7 +410,7 @@ contains
       integer, dimension(:), pointer :: cellMask  ! integer bitmask for cells
       real :: k0, lat0
       integer :: i
-      real (kind=RKIND), dimension(:), pointer :: latCell, lonCell, latCell_deg, kFactor
+      real (kind=RKIND), dimension(:), pointer :: latCell, lonCell, kFactor
 
       ! MPI variables
       integer, dimension(:), pointer :: indexToCellID
@@ -423,15 +428,16 @@ contains
       err = ior(err, err_tmp)
 
       ! Set needed variables for using MPI
+      call mpas_pool_get_subpool(domain % blocklist % structs, 'geometry', geometryPool)
       call mpas_pool_get_subpool(domain % blocklist % structs, 'mesh', meshPool)
       call mpas_pool_get_dimension(meshPool, 'nCells', nCellsAll)
       call mpas_pool_get_dimension(meshPool, 'nCellsSolve', nCellsOwned)
       call mpas_pool_get_array(meshPool, 'indexToCellID', indexToCellID)
       call mpas_pool_get_array(meshPool, 'latCell', latCell)
       call mpas_pool_get_array(meshPool, 'lonCell', lonCell)
+      call mpas_pool_get_array(geometryPool, 'kFactor', kFactor)
 
       !convert latCell into degrees
-      latCell_deg(:) = latCell(:) * 180 / 3.14159265359
       !calculate the area distortion (scale) factor for the polar stereographic projection
       k0 = (1 - sin(-71 * 3.14159265359 / 180)) / 2
       lat0 = -90 * 3.14159265359 / 180 ! center of the latitude
@@ -591,7 +597,7 @@ contains
       use li_advection, only: li_update_geometry
 #ifdef USE_SEALEVELMODEL
       use sl_model_mod                    !< this is part of the SLM code
-      use sl_io_mod                       !< this is part of the SLM code
+      use sl_io_mod                      !< this is part of the SLM code
       use user_specs_mod, only: nglv, dt1 !< this is part of the SLM code
 #endif
       !-----------------------------------------------------------------
@@ -623,13 +629,18 @@ contains
       real (kind=RKIND), dimension(:), pointer :: bedTopographyChange
       real (kind=RKIND), dimension(:), allocatable :: meshMask
       real (kind=RKIND), dimension(:), pointer :: meshMask_before, meshMask_after
-      real (kind=RKIND), dimension(nglv,2*nglv) :: ismIceload, ismMask
-      real (kind=RKIND), dimension(nglv,2*nglv) :: slmSLchange
+      real (kind=RKIND), dimension(nglv,2*nglv) :: ismIceload, ismMask, kFactor2_on_slm
+      real (kind=RKIND), dimension(nglv,2*nglv) :: slmSLchange, kFactor2InvSLgrid2D
+      integer, dimension(nglv,2*nglv) :: maliMaskOnesSLgrid2D
       real (kind=RKIND), dimension(nglv*2*nglv) :: slChangeSLgrid1D
-      real (kind=RKIND), dimension(nglv*2*nglv) :: thicknessSLgrid1D
-      real (kind=RKIND), dimension(nglv*2*nglv) :: maskSLgrid1D
+      real (kind=RKIND), dimension(nglv*2*nglv) :: thicknessSLgrid1D, maliMaskOnesSLgrid1D
+      real (kind=RKIND), dimension(nglv*2*nglv) :: maskSLgrid1D, kFactor2SLgrid1D, kFactor2InvSLgrid1D
       integer, dimension(:), pointer :: cellMask
-
+      real :: k0, lat0
+      integer :: i
+      real (kind=RKIND), dimension(:), pointer :: latCell, lonCell
+      real (kind=RKIND), dimension(:), pointer :: kFactor, kFactor2
+      real (kind=RKIND), dimension(:), pointer :: kFactor2Inv_remapped_from_slm, maliMaskOnes_remapped_from_slm
       integer :: err, err_tmp
 
       integer :: itersl, dtime     ! SLM variable
@@ -647,8 +658,29 @@ contains
       call mpas_pool_get_subpool(domain % blocklist % structs, 'velocity', velocityPool)
       call mpas_pool_get_array(geometryPool, 'meshMask_before', meshMask_before)
       call mpas_pool_get_array(geometryPool, 'meshMask_after', meshMask_after)
+      call mpas_pool_get_array(meshPool, 'latCell', latCell)
+      call mpas_pool_get_array(meshPool, 'lonCell', lonCell)
+      call mpas_pool_get_array(geometryPool, 'kFactor', kFactor)
+      call mpas_pool_get_array(geometryPool, 'kFactor2', kFactor2)
+      call mpas_pool_get_array(geometryPool, 'maliMaskOnes_remapped_from_slm', maliMaskOnes_remapped_from_slm)
+      call mpas_pool_get_array(geometryPool, 'kFactor2Inv_remapped_from_slm', kFactor2Inv_remapped_from_slm)
+      call mpas_pool_get_array(geometryPool, 'maliMaskOnes_remapped_from_slm', maliMaskOnes_remapped_from_slm)
+
+      !calculate the area distortion (scale) factor for the polar stereographic projection
+      k0 = (1 - sin(-71 * 3.14159265359 / 180)) / 2
+      lat0 = -90 * 3.14159265359 / 180 ! center of the latitude
+      !lon0 = 0 ! center of the longitude
+      do i=1,nCellsAll
+         !expression for 'k' from p. 157 eqn. 21-4 in https://pubs.usgs.gov/pp/1395/report.pdf.
+         !p. 142 provides a table showing 'k' for the stereographic projection
+         kFactor(i) = 2 * k0 / ( 1 + (sin(lat0) * sin(latCell(i))) + (cos(lat0) * cos(latCell(i)) * cos(lonCell(i)-0.0)) )
+      enddo
+      kFactor2 = kFactor**2
 
       if (curProc.eq.0) then
+         allocate(globalArrayMeshMaskofOnes(nCellsGlobal), gatheredArrayMeshMaskofOnes(nCellsGlobal))
+         allocate(globalArrayFactorK2_on_mali(nCellsGlobal), gatheredArrayFactorK2_on_mali(nCellsGlobal))
+         allocate(globalArrayFactorK2Inv_on_mali(nCellsGlobal), gatheredArrayFactorK2Inv_on_mali(nCellsGlobal))
          allocate(globalArrayMeshMask(nCellsGlobal), gatheredArrayMeshMask(nCellsGlobal))
          allocate(globalArrayThickness(nCellsGlobal), gatheredArrayThickness(nCellsGlobal))
          allocate(globalArrayTopoChange(nCellsGlobal), gatheredArrayTopoChange(nCellsGlobal))
@@ -659,8 +691,12 @@ contains
          slChangeSLgrid1D(:) = 0.0
          thicknessSLgrid1D(:) = 0.0
          maskSLgrid1D(:) = 0.0
+         kFactor2SLgrid1D(:) = 0.0
       else
          ! Intel requires these be allocated even though they are not meaningful on the non-destination procs
+         allocate(globalArrayMeshMaskofOnes(1), gatheredArrayMeshMaskofOnes(1))
+         allocate(globalArrayFactorK2_on_mali(1), gatheredArrayFactorK2_on_mali(1))
+         allocate(globalArrayFactorK2Inv_on_mali(1), gatheredArrayFactorK2Inv_on_mali(1))
          allocate(globalArrayMeshMask(1), gatheredArrayMeshMask(1))
          allocate(globalArrayThickness(1), gatheredArrayThickness(1))
          allocate(globalArrayTopoChange(1), gatheredArrayTopoChange(1))
@@ -673,29 +709,51 @@ contains
                        nCellsDisplacement, MPI_DOUBLE, 0, domain % dminfo % comm, err_tmp)
       err = ior(err, err_tmp)
 
+      ! Gather cells for k-factor squared
+      call MPI_GATHERV(kFactor2, &
+                       nCellsOwned, MPI_DOUBLE, gatheredArrayFactorK2_on_mali, nCellsPerProc, &
+                       nCellsDisplacement, MPI_DOUBLE, 0, domain % dminfo % comm, err_tmp)
+      err = ior(err, err_tmp)
+
       if (curProc.eq.0) then
 
          ! Rearrange thickness into CellID order
          do iCell = 1,nCellsGlobal
             globalArrayThickness(indexToCellIDGathered(iCell)) = gatheredArrayThickness(iCell)
             meshMask(indexToCellIDGathered(iCell)) = 1
+            globalArrayFactorK2_on_mali(indexToCellIDGathered(iCell)) = gatheredArrayFactorK2_on_mali(iCell)
          enddo
 
          ! interpolate thickness to Gaussian grid
          call interpolate(toColValues, toRowValues, toSvalues, globalArrayThickness, thicknessSLgrid1D)
          call interpolate(toColValues, toRowValues, toSvalues, meshMask, maskSLgrid1D)
+         call interpolate(toColValues, toRowValues, toSvalues, globalArrayFactorK2_on_mali, kFactor2SLgrid1D)
 
          ! reformat the interpolated data
          ismIceload = reshape(thicknessSLgrid1D, [nglv,2*nglv])
          ismMask = reshape(maskSLgrid1D, [nglv,2*nglv])
+         kFactor2_on_slm = reshape(kFactor2SLgrid1D, [nglv,2*nglv])
+         call write_sl(kFactor2_on_slm, 'kFactor2_remapped_on_GLgrid', 'OUTPUT_SLM/')
 
          ! series of calling SLM routines
          call sl_drive_readnl(itersl, dtime, starttime)
          call sl_call_readnl
          call sl_solver_checkpoint(itersl, dtime)
          call sl_timewindow(slmTimeStep)
-         call sl_solver(itersl, slmTimeStep, dtime, starttime, ismIceload, ismMask, slmSLchange)
+         call sl_solver(itersl, slmTimeStep, dtime, starttime, ismIceload, ismMask, kFactor2_on_slm, slmSLchange, kFactor2InvSLgrid2D, maliMaskOnesSLgrid2D)
          call sl_deallocate_array
+
+         ! interpolate 1/k2 and mali mask of ones from SLM grid to MALI mesh
+         kFactor2InvSLgrid1D = reshape(kFactor2InvSLgrid2D, [nglv*2*nglv])
+         maliMaskOnesSLgrid1D = reshape(maliMaskOnesSLgrid2D, [nglv*2*nglv])
+         call interpolate(fromColValues, fromRowValues, fromSValues, kFactor2InvSLgrid1D, globalArrayFactorK2Inv_on_mali)
+         call interpolate(fromColValues, fromRowValues, fromSValues, maliMaskOnesSLgrid1D, globalArrayMeshMaskofOnes)
+
+         ! Rearrange back to index order
+         do iCell = 1,nCellsGlobal
+            gatheredArrayFactorK2Inv_on_mali(iCell) = globalArrayFactorK2Inv_on_mali(indexToCellIDGathered(iCell))
+            gatheredArrayMeshMaskofOnes(iCell) = globalArrayMeshMaskofOnes(indexToCellIDGathered(iCell))
+         enddo
 
          ! reshape 2D array SLM output into 1D array
          slChangeSLgrid1D = reshape(slmSLchange, [nglv*2*nglv])
@@ -737,6 +795,15 @@ contains
                         meshMask_after, nCellsAll, MPI_DOUBLE, 0, domain % dminfo % comm, err_tmp)
       err = ior(err, err_tmp)
 
+      ! scatter output sea-level changes to processors
+      call MPI_SCATTERV(gatheredArrayFactorK2Inv_on_mali, nCellsPerProc, nCellsDisplacement, MPI_DOUBLE, &
+                       kFactor2Inv_remapped_from_slm, nCellsAll, MPI_DOUBLE, 0, domain % dminfo % comm, err_tmp)
+      err = ior(err, err_tmp)
+
+      call MPI_SCATTERV(gatheredArrayMeshMaskofOnes, nCellsPerProc, nCellsDisplacement, MPI_DOUBLE, &
+                        maliMaskOnes_remapped_from_slm, nCellsAll, MPI_DOUBLE, 0, domain % dminfo % comm, err_tmp)
+       err = ior(err, err_tmp)
+
       ! Perform Halo exchange update
       call mpas_dmpar_field_halo_exch(domain,'bedTopography')
       call li_update_geometry(geometryPool)
@@ -750,7 +817,13 @@ contains
       deallocate(gatheredArrayThickness)
       deallocate(globalArrayTopoChange)
       deallocate(gatheredArrayTopoChange)
+      deallocate(globalArrayFactorK2Inv_on_mali)
+      deallocate(gatheredArrayFactorK2Inv_on_mali)
+      deallocate(globalArrayFactorK2_on_mali)
+      deallocate(gatheredArrayFactorK2_on_mali)
       deallocate(meshMask)
+      deallocate(globalArrayMeshMaskofOnes)
+      deallocate(gatheredArrayMeshMaskofOnes)
 #endif
 
    !--------------------------------------------------------------------
