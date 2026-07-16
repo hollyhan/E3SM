@@ -658,7 +658,7 @@ contains
       real (kind=RKIND), dimension(:), allocatable :: meshMask
       real (kind=RKIND), dimension(:,:), allocatable :: ismIceload, ismMask
       real (kind=RKIND), dimension(:,:), allocatable :: slmSLchange
-      real (kind=RKIND), dimension(:,:), allocatable :: geoidSLchange
+      real (kind=RKIND), dimension(:,:), allocatable :: slmGeoidChange
       real (kind=RKIND), dimension(:), allocatable :: slChangeSLgrid1D
       real (kind=RKIND), dimension(:), allocatable :: geoidChangeSLgrid1D
       real (kind=RKIND), dimension(:), allocatable :: thicknessSLgrid1D
@@ -746,7 +746,7 @@ contains
 
          ! reshape 2D array SLM output into 1D array
          slChangeSLgrid1D = reshape(slmSLchange, [nglv_slm*2*nglv_slm])
-         geoidChangeSLgrid1D = reshape(slmGeoidchange, [nglv_slm*2*nglv_slm])
+         geoidChangeSLgrid1D = reshape(slmGeoidChange, [nglv_slm*2*nglv_slm])
 
          ! interpolate sea-level change from GL grid to MALI mesh.
          ! note: in the static sea-level theory, sea level and topography are globally defined !>
