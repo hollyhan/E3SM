@@ -4118,7 +4118,8 @@ module li_calving
                                                   bedTopography, &
                                                   calvingThickness, &
                                                   strainRateEnhancementForCalving, &
-                                                  sfcMassBalApplied
+                                                  sfcMassBalApplied, &
+                                                  stiffnessFactor
       real (kind=RKIND), pointer :: deltat  !< time step (s)
       real (kind=RKIND), pointer :: config_flowLawExponent, &
                                     config_crevasse_water_depth, &
@@ -4157,6 +4158,7 @@ module li_calving
       call mpas_pool_get_array(geometryPool, 'sfcMassBalApplied', sfcMassBalApplied)
       call mpas_pool_get_array(geometryPool, 'damage', damage)
       call mpas_pool_get_array(velocityPool, 'flowParamA', flowParamA)
+      call mpas_pool_get_array(velocityPool, 'stiffnessFactor', stiffnessFactor)
       call mpas_pool_get_array(velocityPool, 'eMax', eMax)
       call mpas_pool_get_array(velocityPool, 'eMin', eMin)
       call mpas_pool_get_array(thermalPool, 'temperature', temperature)
@@ -4214,7 +4216,7 @@ module li_calving
             ! Calculate dry crevasse depth using first principal deviatoric stress (Ranganathan et al., 2025; eq 13).
             ! Calculate first principal deviatoric stress following Cuffey & Paterson (2010) eq. 3.25.
             meanA = sum(layerThickness(:,iCell) * flowParamA(:,iCell), dim=1) / thickness(iCell)
-            tauMaxForCalving = meanA**(-1.0_RKIND / config_flowLawExponent) * &
+            tauMaxForCalving = stiffnessFactor(iCell) * meanA**(-1.0_RKIND / config_flowLawExponent) * &
                 eEff**((1.0_RKIND - config_flowLawExponent) / config_flowLawExponent) * &
                 strainRateEnhancementForCalving(iCell) * eMax(iCell)
             dryCrevasseDepth = max(0.0_RKIND, tauMaxForCalving) / (config_ice_density * gravity)
