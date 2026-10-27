@@ -4120,6 +4120,7 @@ module li_calving
                                                   strainRateEnhancementForCalving, &
                                                   sfcMassBalApplied, &
                                                   stiffnessFactor
+      integer, dimension(:), pointer :: cellMask
       real (kind=RKIND), pointer :: deltat  !< time step (s)
       real (kind=RKIND), pointer :: config_flowLawExponent, &
                                     config_crevasse_water_depth, &
@@ -4157,6 +4158,7 @@ module li_calving
       call mpas_pool_get_array(geometryPool, 'strainRateEnhancementForCalving', strainRateEnhancementForCalving)
       call mpas_pool_get_array(geometryPool, 'sfcMassBalApplied', sfcMassBalApplied)
       call mpas_pool_get_array(geometryPool, 'damage', damage)
+      call mpas_pool_get_array(geometryPool, 'cellMask', cellMask)
       call mpas_pool_get_array(velocityPool, 'flowParamA', flowParamA)
       call mpas_pool_get_array(velocityPool, 'stiffnessFactor', stiffnessFactor)
       call mpas_pool_get_array(velocityPool, 'eMax', eMax)
@@ -4235,8 +4237,13 @@ module li_calving
                 max(0.0_RKIND, (dryCrevasseDepth - max(0.0_RKIND, thickness(iCell) + &
                  config_ocean_density / config_ice_density * bedTopography(iCell)))) * &
                 config_ice_density / (config_ocean_density - config_ice_density)
-            damage(iCell) = min(1.0_RKIND, (surfaceCrevasseDepth(iCell) + &
+            if (li_mask_is_dynamic_ice(cellMask(iCell))) then
+               ! do not assign damage to non-dynamic cells.  It will not actually be used
+               ! but it pollutes the damage field where the thickness is (artificially)
+               ! very small.  This change is to improve visualization of the damage field only.
+               damage(iCell) = min(1.0_RKIND, (surfaceCrevasseDepth(iCell) + &
                                             basalCrevasseDepth(iCell)) / thickness(iCell))
+            endif
          else
             surfaceCrevasseDepth(iCell) = 0.0_RKIND
             basalCrevasseDepth(iCell) = 0.0_RKIND
